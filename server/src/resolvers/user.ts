@@ -61,12 +61,12 @@ export class UserResolver {
     @Mutation(() => UserResponse)
     async register(
         @Arg("inputOptions") inputOptions: UsernamePasswordInput,
-        @Ctx() { em }: MyContext
+        @Ctx() { em, req }: MyContext
     ): Promise<UserResponse> {
         if(inputOptions.username.length <= 2) {
             return {
                 errors : [{
-                    field : 'Username',
+                    field : 'username',
                     message : 'Username must be at least 3 characters long'
                 }]
             }
@@ -74,7 +74,7 @@ export class UserResolver {
         if(inputOptions.password.length <= 3) {
             return {
                 errors : [{
-                    field : 'Password',
+                    field : 'password',
                     message : 'Password must be at least 4 characters long'
                 }]
             }
@@ -86,12 +86,13 @@ export class UserResolver {
         });
         try {
             await em.persistAndFlush(user);
+            req.session.userId = user.id;
         } catch (error) {
             if(error.code === '23505') {
                 return {
                     errors: [
                         {
-                            field : "Username",
+                            field : "username",
                             message: "Username already taken"
                         }
                     ],
