@@ -4,21 +4,17 @@ import {
     Arg,
     Ctx,
     Field,
-    InputType,
     Mutation,
     ObjectType,
     Query,
     Resolver,
 } from "type-graphql";
 import argon2 from "argon2";
-
-@InputType()
-class UsernamePasswordInput {
-    @Field()
-    username: string;
-    @Field()
-    password: string;
-}
+import { COOKIE_NAME, FORGOT_PASSWORD_PREFIX } from "../constants";
+import { sendMail } from "../utils/sendMail";
+import { UsernamePasswordInput } from "./UsernamePasswordInput";
+import { validateRegister } from "../utils/validateRegister";
+import { v4 } from "uuid";
 
 @ObjectType()
 class UserResponse {
@@ -39,95 +35,169 @@ class FieldError {
 
 @Resolver()
 export class UserResolver {
+    @Mutation(() => UserResponse)
+    async changePassword(
+        @Arg("token") token: string,
+        @Arg("newPassword") newPassword: string,
+        @Ctx() { redis, req }: MyContext
+    ): Promise<UserResponse> {
+        if (newPassword.length <= 2) {
+            return {
+                errors: [
+                    {
+                        field: "newPassword",
+                        message: "length must be greater than 2",
+                    },
+                ],
+            };
+        }
+        const key = FORGOT_PASSWORD_PREFIX + token;
+        const userId = await redis.get(key);
+        if (!userId) {
+            return {
+                errors: [
+                    {
+                        field: "token",
+                        message: "Token has expired",
+                    },
+                ],
+            };
+        }
+        const userIdNum = parseInt(userId);
+        const user = await User.findOneBy({ id: userIdNum });
+        if (!user) {
+            return {
+                errors: [
+                    {
+                        field: "token",
+                        message: "User no longer exits",
+                    },
+                ],
+            };
+        }
+
+        await User.update(
+            { id: userIdNum },
+            {
+                password: await argon2.hash(newPassword),
+            }
+        );
+        await redis.del(key);
+        //Login user after password change
+        req.session.userId = user.id;
+        return {
+            user,
+        };
+    }
+
+    @Mutation(() => Boolean)
+    async forgotPassword(
+        @Arg("email") email: string,
+        @Ctx() { redis }: MyContext
+    ) {
+        const user = await User.findOneBy({ email: email });
+        if (!user) {
+            return true;
+        }
+
+        const token = v4();
+        await redis.set(
+            FORGOT_PASSWORD_PREFIX + token,
+            user.id,
+            "PX",
+            1000 * 60 * 60 * 24 * 3
+        );
+        await sendMail(
+            user?.email,
+            `<a href="http://localhost:3000/change-password/${token}">Change Password</a>`
+        );
+        return true;
+    }
+
     @Query(() => [User])
-    async getUsers(
-        @Ctx() { em }: MyContext
-    ): Promise<User[]> {
-        const users = await em.find(User, {});
+    async getUsers(): Promise<User[]> {
+        const users = await User.find();
         return users;
     }
-    
-    @Query(() => User, { nullable : true}) 
-    async me( 
-        @Ctx() {req,em} : MyContext
-    ) : Promise<User | null> {
-        if(!req.session.userId) {
+
+    @Query(() => User, { nullable: true })
+    async me(@Ctx() { req }: MyContext): Promise<User | null> {
+        if (!req.session.userId) {
             return null;
         }
-        const user = await em.findOne(User, {id : req.session.userId});
+        const user = await User.findOneBy({ id: req.session.userId });
         return user;
     }
 
     @Mutation(() => UserResponse)
     async register(
         @Arg("inputOptions") inputOptions: UsernamePasswordInput,
-        @Ctx() { em, req }: MyContext
+        @Ctx() { req }: MyContext
     ): Promise<UserResponse> {
-        if(inputOptions.username.length <= 2) {
-            return {
-                errors : [{
-                    field : 'username',
-                    message : 'Username must be at least 3 characters long'
-                }]
-            }
-        }
-        if(inputOptions.password.length <= 3) {
-            return {
-                errors : [{
-                    field : 'password',
-                    message : 'Password must be at least 4 characters long'
-                }]
-            }
+        const errors = validateRegister(inputOptions);
+        if (errors) {
+            return { errors };
         }
         const hashedPassword = await argon2.hash(inputOptions.password);
-        const user = em.create(User, {
-            username: inputOptions.username,
-            password: hashedPassword,
-        });
+        let user;
         try {
-            await em.persistAndFlush(user);
-            req.session.userId = user.id;
+            user = await User.create({
+                username: inputOptions.username,
+                email: inputOptions.email,
+                password: hashedPassword,
+            }).save();
         } catch (error) {
-            if(error.code === '23505') {
+            console.log(error);
+            if (error.code === "23505") {
                 return {
                     errors: [
                         {
-                            field : "username",
-                            message: "Username already taken"
-                        }
+                            field: "username",
+                            message: "Username already taken",
+                        },
+                        {
+                            field: "email",
+                            message: "Email already taken",
+                        },
                     ],
-                }
+                };
             }
         }
-        return {user};
+        req.session.userId = user?.id;
+        return { user };
     }
 
     @Mutation(() => UserResponse)
     async login(
-        @Arg("inputOptions") inputOptions: UsernamePasswordInput,
-        @Ctx() { em,req }: MyContext
+        @Arg("usernameOrEmail") usernameOrEmail: string,
+        @Arg("password") password: string,
+        @Ctx() { req }: MyContext
     ): Promise<UserResponse> {
-        const user = await em.findOne(User, {
-            username: inputOptions.username,
-        });
+        const user = await User.findOneBy(
+            usernameOrEmail.includes("@")
+                ? {
+                      email: usernameOrEmail,
+                  }
+                : { username: usernameOrEmail }
+        );
         if (!user) {
             return {
                 errors: [
                     {
-                        field: "username",
-                        message: "Could not find the username",
+                        field: "usernameOrEmail",
+                        message: "Could not find the username or Emails",
                     },
                 ],
             };
         }
-        const valid = await argon2.verify(user.password,inputOptions.password);
-        if(!valid) {
+        const valid = await argon2.verify(user.password, password);
+        if (!valid) {
             return {
-                errors : [
+                errors: [
                     {
-                        field : "password",
-                        message : "Not a valid password"
-                    }
+                        field: "password",
+                        message: "Not a valid password",
+                    },
                 ],
             };
         }
@@ -137,5 +207,19 @@ export class UserResolver {
         return {
             user,
         };
+    }
+    @Mutation(() => Boolean)
+    logout(@Ctx() { req, res }: MyContext) {
+        return new Promise((resolve) =>
+            req.session.destroy((err) => {
+                res.clearCookie(COOKIE_NAME);
+                if (err) {
+                    console.log(err);
+                    resolve(false);
+                    return;
+                }
+                resolve(true);
+            })
+        );
     }
 }
