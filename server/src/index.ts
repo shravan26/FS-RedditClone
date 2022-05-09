@@ -16,6 +16,7 @@ import cors from "cors";
 import { DataSource } from "typeorm";
 import { Post } from "./entities/Post";
 import { User } from "./entities/User";
+import path from "path";
 const main = async () => {
     const conn = new DataSource({
         type: "postgres",
@@ -26,9 +27,12 @@ const main = async () => {
         database: "lireddit2",
         synchronize: true,
         logging: true,
-        entities: [Post, User]
+        migrations: [path.join(__dirname, "./migration/*")],
+        entities: [Post, User],
     });
-    conn.initialize();
+    await conn.initialize();
+    await conn.runMigrations();
+    // await Post.delete({});
     const app = express();
     const RedisStore = connectRedis(session);
     const redis = new Redis();
@@ -68,7 +72,7 @@ const main = async () => {
             resolvers: [HelloResolver, PostResolver, UserResolver],
             validate: false,
         }),
-        context: ({ req, res }): MyContext => ({conn, req, res, redis }),
+        context: ({ req, res }): MyContext => ({ conn, req, res, redis }),
     });
 
     await apolloServer.start();

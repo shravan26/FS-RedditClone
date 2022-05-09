@@ -1,0 +1,5 @@
+mutation CreatePost($inputOptions : PostInput!){
+    createPost(inputOptions : $inputOptions) {
+            ...postInfoFragment
+    }
+}
