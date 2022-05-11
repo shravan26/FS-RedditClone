@@ -1,4 +1,3 @@
-import { query } from "express";
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class MockPosts1652074396552 implements MigrationInterface {

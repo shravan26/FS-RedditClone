@@ -17,6 +17,7 @@ import { DataSource } from "typeorm";
 import { Post } from "./entities/Post";
 import { User } from "./entities/User";
 import path from "path";
+import { Updoot } from "./entities/Updoot";
 const main = async () => {
     const conn = new DataSource({
         type: "postgres",
@@ -28,11 +29,11 @@ const main = async () => {
         synchronize: true,
         logging: true,
         migrations: [path.join(__dirname, "./migration/*")],
-        entities: [Post, User],
+        entities: [Post, User,Updoot],
     });
     await conn.initialize();
     await conn.runMigrations();
-    // await Post.delete({});
+    // await Updoot.delete({});
     const app = express();
     const RedisStore = connectRedis(session);
     const redis = new Redis();

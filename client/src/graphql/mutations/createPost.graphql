@@ -1,5 +1,8 @@
-mutation CreatePost($inputOptions : PostInput!){
-    createPost(inputOptions : $inputOptions) {
-            ...postInfoFragment
+mutation CreatePost($inputOptions: PostInput!) {
+    createPost(inputOptions: $inputOptions) {
+        id
+        textSnippet
+        title
+        creatorId
     }
 }
