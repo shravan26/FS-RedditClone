@@ -1,4 +1,4 @@
-import { ChevronDownIcon, ChevronUpIcon } from "@chakra-ui/icons";
+import { DeleteIcon, EditIcon } from "@chakra-ui/icons";
 import {
     Box,
     Button,
@@ -14,16 +14,22 @@ import NextLink from "next/link";
 import { useState } from "react";
 import Layout from "../components/Layout";
 import Updoots from "../components/Updoots";
-import { usePostsQuery } from "../generated/graphql";
+import {
+    useDeletePostsMutation,
+    useMeQuery,
+    usePostsQuery,
+} from "../generated/graphql";
 import { createUrqlClient } from "../utils/createUrqlClient";
 const Index = () => {
     const [variables, setVariables] = useState({
         limit: 10,
         cursor: null as string | null,
     });
+    const [{ data: meData }] = useMeQuery();
     const [{ data, fetching }] = usePostsQuery({
         variables,
     });
+    const [, deletePosts] = useDeletePostsMutation();
     if (!data && !fetching) {
         return <div>Your query has failed</div>;
     }
@@ -38,18 +44,70 @@ const Index = () => {
 
             {data && !fetching ? (
                 <Stack spacing={8}>
-                    {data.posts.posts.map((post) => (
-                        <Flex p={5} shadow="md" borderWidth="1px" key={post.id}>
-                            <Updoots post={post} />
-                            <Box>
-                                <Heading fontSize="xl">{post.title}</Heading>
-                                <Text fontSize="sm">
-                                    posted by {post.creator.username}
-                                </Text>
-                                <Text>{post.textSnippet}</Text>
-                            </Box>
-                        </Flex>
-                    ))}
+                    {data.posts.posts.map((post) =>
+                        !post ? null : (
+                            <Flex
+                                p={5}
+                                shadow="md"
+                                borderWidth="1px"
+                                key={post.id}
+                                align="center"
+                            >
+                                <Updoots post={post} />
+                                <Box ml={4}>
+                                    <NextLink
+                                        href="/post/[id]"
+                                        as={`/post/${post.id}`}
+                                    >
+                                        <Link>
+                                            <Heading fontSize="xl">
+                                                {post.title}
+                                            </Heading>
+                                        </Link>
+                                    </NextLink>
+                                    <Text fontSize="sm">
+                                        posted by {post.creator.username}
+                                    </Text>
+                                    <Text>{post.textSnippet}</Text>
+                                </Box>
+                                <Box ml="auto">
+                                    <Flex align="center">
+                                        <NextLink
+                                        href="/post/edit/[id]"
+                                        as={`/post/edit/${post.id}`}
+                                    >
+                                        <Link>
+                                            <IconButton
+                                                icon={<EditIcon />}
+                                                aria-label="Edit post"
+                                                display={
+                                                    meData?.me?.id ===
+                                                    post.creator.id
+                                                        ? "block"
+                                                        : "none"
+                                                }
+                                            />
+                                        </Link>
+                                    </NextLink>
+
+                                    <IconButton
+                                        icon={<DeleteIcon />}
+                                        aria-label="Delete post"
+                                        onClick={() => {
+                                            deletePosts({ id: post.id });
+                                        }}
+                                        display={
+                                            meData?.me?.id === post.creator.id
+                                                ? "block"
+                                                : "none"
+                                        }
+                                    />
+                                    </Flex>
+                                </Box>
+                                    
+                            </Flex>
+                        )
+                    )}
                 </Stack>
             ) : (
                 <div>loading ...</div>

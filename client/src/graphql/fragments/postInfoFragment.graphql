@@ -2,6 +2,7 @@ fragment postInfoFragment on Post {
     id
     title
     textSnippet
+    text
     points
     createdAt
     updatedAt
